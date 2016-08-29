@@ -1,10 +1,12 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
+using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using JustObjectsPrototype.Universal;
 using JustObjectsPrototype.Universal.JOP;
 using Windows.ApplicationModel.Activation;
-using Windows.UI.Popups;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 
@@ -15,24 +17,28 @@ namespace TimeTracker
 		public App()
 		{
 			this.InitializeComponent();
+			Suspending += App_Suspending;
 		}
 
-		protected override void OnLaunched(LaunchActivatedEventArgs e)
+		private void App_Suspending(object sender, Windows.ApplicationModel.SuspendingEventArgs e)
 		{
-			var objects = new ObservableCollection<object>
-			{
-				new Projekt { Name = "Erstes Projekt" },
-				new Projekt { Name = "Große Akte" },
-				new Projekt { Name = "Sonstiges" },
-				new Kunde { Vorname = "Manuel", Nachname = "Naujoks"},
-			};
+			Prototype.Remember(typeof(Stunden), typeof(Minuten));
+		}
 
-			Show.Prototype(With.These(objects)
+		protected async override void OnLaunched(LaunchActivatedEventArgs e)
+		{
+			Prototype = Show.Prototype(
+
+				With.Remembered(Einstellungen.Alle)
 				.AndViewOf<Zeiteintrag>()
+				.AndViewOf<Tätigkeit>()
 				.AndViewOf<Projekt>()
 				.AndViewOf<Kunde>()
+				.AndViewOf<Einstellungen>()
 				.AndOpen<Zeiteintrag>());
 		}
+
+		public static Prototype Prototype;
 	}
 
 
@@ -50,89 +56,221 @@ namespace TimeTracker
 
 
 
-	[Icon(Symbol.Folder)]
-	class Projekt
+	[Icon(Symbol.Folder), Title("Projekte")]
+	public class Projekt
 	{
 		public string Name { get; set; }
 		public string Kürzel { get; set; }
 
-		[Icon(Symbol.Add), JumpToResult]
-		public static Projekt Neu()
+		public int Erfasste_Zeiten => App.Prototype.Repository.OfType<Zeiteintrag>().Count(z => z.Tokens.Contains(this));
+
+		[Icon(Symbol.Add), JumpsToResult]
+		public async static Task<Projekt> Neu()
 		{
-			return new Projekt();
+			var projekt = new Projekt();
+			return projekt;
 		}
 
-		[Icon(Symbol.Remove)]
-		public void Löschen(ObservableCollection<Projekt> projekte)
+		[Icon(Symbol.Remove), RequiresConfirmation]
+		public async void Löschen(ObservableCollection<Projekt> projekte)
 		{
 			projekte.Remove(this);
 		}
+
+		public override string ToString() => $"{Name}";
 	}
 
-	[Icon(Symbol.Contact2)]
-	class Kunde
+
+	[Icon(Symbol.Flag), Title("Tätigkeiten")]
+	public class Tätigkeit
+	{
+		public string Bezeichnung { get; set; }
+		public string Kürzel { get; set; }
+
+		[Icon(Symbol.Add), JumpsToResult]
+		public async static Task<Tätigkeit> Neu()
+		{
+			var tätigkeit = new Tätigkeit();
+			return tätigkeit;
+		}
+
+		[Icon(Symbol.Remove), RequiresConfirmation]
+		public async void Löschen(ObservableCollection<Tätigkeit> tätigkeiten)
+		{
+			tätigkeiten.Remove(this);
+		}
+
+		public override string ToString() => $"{Bezeichnung}";
+	}
+
+
+	[Icon(Symbol.Contact2), Title("Kunden")]
+	public class Kunde
 	{
 		public string Vorname { get; set; }
 		public string Nachname { get; set; }
 		public string Kürzel { get; set; }
 
-		[Icon(Symbol.Add), JumpToResult]
-		public static Kunde Neu()
+		public int Erfasste_Zeiten => App.Prototype.Repository.OfType<Zeiteintrag>().Count(z => z.Tokens.Contains(this));
+
+		[Icon(Symbol.Add), JumpsToResult]
+		public async static Task<Kunde> Neu()
 		{
-			return new Kunde();
+			var kunde = new Kunde();
+			return kunde;
 		}
 
-		[Icon(Symbol.Remove)]
-		public void Löschen(ObservableCollection<Kunde> kunden)
+		[Icon(Symbol.Remove), RequiresConfirmation]
+		public async void Löschen(ObservableCollection<Kunde> kunden)
 		{
 			kunden.Remove(this);
 		}
+
+		public override string ToString() => $"{Vorname} {Nachname}";
 	}
 
-	[Icon(Symbol.Clock)]
-	class Zeiteintrag
+
+	[Icon(Symbol.Clock), Title("Zeiteinträge")]
+	public class Zeiteintrag
 	{
+		[Editor(hide: true)]
+		public Guid Id { get; set; } = Guid.NewGuid();
 		public string Beschreibung { get; set; }
 
 		[Editor(@readonly: true)]
-		public Kunde Kunde { get; set; }
-
-		[Editor(@readonly: true)]
-		public Projekt Projekt { get; set; }
+		public List<object> Tokens { get; set; }
 
 		[Icon(Symbol.Add)]
-		public async static Task<Zeiteintrag> Neu(string beschreibung, Projekt projekt, Kunde kunde)
+		public async static Task<Zeiteintrag> Neu(string beschreibung,
+			Tätigkeit Tätigkeit,
+			Projekt Projekt,
+			Kunde Kunde,
+			ObservableCollection<Tätigkeit> tätigkeiten,
+			ObservableCollection<Projekt> projekte,
+			ObservableCollection<Kunde> kunden)
 		{
 			if (string.IsNullOrEmpty(beschreibung))
 			{
-				await new MessageDialog("Beschreibung angeben.").ShowAsync();
+				await Show.Message("Beschreibung angeben.");
 				return null;
 			}
 			else
 			{
-				return new Zeiteintrag
+				var tätigkeitenNachKürzel = tätigkeiten.ToLookup(t => t.Kürzel);
+				var projekteNachKürzel = projekte.ToLookup(p => p.Kürzel);
+				var kundenNachKürzel = kunden.ToLookup(k => k.Kürzel);
+
+				var tokens = beschreibung.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).SelectMany(t =>
 				{
-					Beschreibung = beschreibung,
-					Projekt = projekt,
-					Kunde = kunde
+					var menge = t.Substring(0, t.Length - 1);
+					decimal parsed;
+					if (decimal.TryParse(menge, out parsed))
+					{
+						if (t.EndsWith("h"))
+						{
+							return new[] { new Stunden { Menge = parsed } };
+						}
+						else if (t.EndsWith("m"))
+						{
+							return new[] { new Minuten { Menge = parsed } };
+						}
+						else
+						{
+							return Enumerable.Empty<object>();
+						}
+					}
+					else if (tätigkeitenNachKürzel.Contains(t))
+					{
+						return tätigkeitenNachKürzel[t];
+					}
+					else if (projekteNachKürzel.Contains(t))
+					{
+						return projekteNachKürzel[t];
+					}
+					else if (kundenNachKürzel.Contains(t))
+					{
+						return kundenNachKürzel[t];
+					}
+					else
+					{
+						return Enumerable.Empty<object>();
+					}
+				}).ToList();
+
+				var zeiteintrag = new Zeiteintrag
+				{
+					Beschreibung = beschreibung.Trim(),
+					Tokens = tokens.Concat(new object[] { Tätigkeit, Projekt, Kunde }).ToList()
 				};
+
+				return zeiteintrag;
 			}
 		}
 
-		[Icon(Symbol.Remove)]
+		[Icon(Symbol.Remove), RequiresConfirmation]
 		public async void Löschen(ObservableCollection<Zeiteintrag> zeiten)
 		{
-			var löschDialog = new MessageDialog($"Zeiteintrag \"{Beschreibung}\" löschen?");
-			löschDialog.Options = MessageDialogOptions.None;
-			löschDialog.Commands.Add(new UICommand("Ja", async cmd =>
-			{
-				zeiten.Remove(this);
-			}));
-			löschDialog.Commands.Add(new UICommand("Nein", cmd => { }));
-			löschDialog.CancelCommandIndex = 1;
-			löschDialog.DefaultCommandIndex = 0;
+			zeiten.Remove(this);
+		}
+	}
 
-			await löschDialog.ShowAsync();
+	public class Stunden
+	{
+		public decimal Menge { get; set; }
+		public override string ToString() => $"{Menge} Stunden";
+	}
+	public class Minuten
+	{
+		public decimal Menge { get; set; }
+		public override string ToString() => $"{Menge} Minuten";
+	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	[Icon(Symbol.Setting), DataContract]
+	public abstract class Einstellungen
+	{
+		public static Einstellungen[] Alle => new Einstellungen[] { new AllgemeineEinstellungen(), new SpeicherEinstellungen() };
+
+		[DataContract]
+		public class SpeicherEinstellungen : Einstellungen
+		{
+			public override string ToString() => "Speicher";
+
+			public IEnumerable<object> Gespeicherte_Objekte => App.Prototype.Repository.Where(o => !(o is Einstellungen));
+
+			[Icon(Symbol.Delete)]
+			public async Task Alles_Löschen()
+			{
+				App.Prototype.Repository.Clear();
+			}
+		}
+
+		[DataContract]
+		public class AllgemeineEinstellungen : Einstellungen
+		{
+			public override string ToString() => "Allgemein";
+
+			[DataMember]
+			public string Value1 { get; set; }
+
+			[DataMember]
+			public string Value2 { get; set; }
 		}
 	}
 }
+
