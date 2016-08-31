@@ -28,7 +28,6 @@ namespace TimeTracker
 		protected async override void OnLaunched(LaunchActivatedEventArgs e)
 		{
 			Prototype = Show.Prototype(
-
 				With.Remembered(Einstellungen.Alle)
 				.AndViewOf<Zeiteintrag>()
 				.AndViewOf<Tätigkeit>()
@@ -60,7 +59,8 @@ namespace TimeTracker
 	public class Projekt
 	{
 		public string Name { get; set; }
-		public string Kürzel { get; set; }
+		string kürzel;
+		public string Kürzel { get { return kürzel; } set { kürzel = value?.ToUpper(); } }
 
 		public int Erfasste_Zeiten => App.Prototype.Repository.OfType<Zeiteintrag>().Count(z => z.Tokens.Contains(this));
 
@@ -85,7 +85,8 @@ namespace TimeTracker
 	public class Tätigkeit
 	{
 		public string Bezeichnung { get; set; }
-		public string Kürzel { get; set; }
+		string kürzel;
+		public string Kürzel { get { return kürzel; } set { kürzel = value?.ToUpper(); } }
 
 		[Icon(Symbol.Add), JumpsToResult]
 		public async static Task<Tätigkeit> Neu()
@@ -109,7 +110,8 @@ namespace TimeTracker
 	{
 		public string Vorname { get; set; }
 		public string Nachname { get; set; }
-		public string Kürzel { get; set; }
+		string kürzel;
+		public string Kürzel { get { return kürzel; } set { kürzel = value?.ToUpper(); } }
 
 		public int Erfasste_Zeiten => App.Prototype.Repository.OfType<Zeiteintrag>().Count(z => z.Tokens.Contains(this));
 
@@ -160,17 +162,17 @@ namespace TimeTracker
 				var projekteNachKürzel = projekte.ToLookup(p => p.Kürzel);
 				var kundenNachKürzel = kunden.ToLookup(k => k.Kürzel);
 
-				var tokens = beschreibung.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).SelectMany(t =>
+				var tokens = beschreibung.ToUpper().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).SelectMany(t =>
 				{
 					var menge = t.Substring(0, t.Length - 1);
 					decimal parsed;
 					if (decimal.TryParse(menge, out parsed))
 					{
-						if (t.EndsWith("h"))
+						if (t.EndsWith("H"))
 						{
 							return new[] { new Stunden { Menge = parsed } };
 						}
-						else if (t.EndsWith("m"))
+						else if (t.EndsWith("M"))
 						{
 							return new[] { new Minuten { Menge = parsed } };
 						}
