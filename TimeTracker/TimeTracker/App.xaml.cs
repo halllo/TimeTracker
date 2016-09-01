@@ -22,7 +22,7 @@ namespace TimeTracker
 
 		private void App_Suspending(object sender, Windows.ApplicationModel.SuspendingEventArgs e)
 		{
-			Prototype.Remember(typeof(Stunden), typeof(Minuten));
+			Prototype.Remember(typeof(Stunden), typeof(Minuten), typeof(Datum));
 		}
 
 		protected async override void OnLaunched(LaunchActivatedEventArgs e)
@@ -166,7 +166,18 @@ namespace TimeTracker
 				{
 					var menge = t.Substring(0, t.Length - 1);
 					decimal parsed;
-					if (decimal.TryParse(menge, out parsed))
+					if (decimal.TryParse(t, out parsed))
+					{
+						if (parsed < 10)
+						{
+							return new[] { new Stunden { Menge = parsed } };
+						}
+						else
+						{
+							return new[] { new Minuten { Menge = parsed } };
+						}
+					}
+					else if (decimal.TryParse(menge, out parsed))
 					{
 						if (t.EndsWith("H"))
 						{
@@ -180,6 +191,14 @@ namespace TimeTracker
 						{
 							return Enumerable.Empty<object>();
 						}
+					}
+					else if (t.All(c => c == '-'))
+					{
+						return new[] { new Datum { Tag = DateTime.Today.AddDays(-t.Length) } };
+					}
+					else if (t.All(c => c == '+'))
+					{
+						return new[] { new Datum { Tag = DateTime.Today.AddDays(t.Length) } };
 					}
 					else if (tätigkeitenNachKürzel.Contains(t))
 					{
@@ -202,7 +221,10 @@ namespace TimeTracker
 				var zeiteintrag = new Zeiteintrag
 				{
 					Beschreibung = beschreibung.Trim(),
-					Tokens = tokens.Concat(new object[] { Tätigkeit, Projekt, Kunde }).ToList()
+					Tokens = tokens
+						.Concat(tokens.OfType<Datum>().Any() ? Enumerable.Empty<Datum>() : new[] { new Datum { Tag = DateTime.Today } })
+						.Concat(new object[] { Tätigkeit, Projekt, Kunde })
+						.ToList()
 				};
 
 				return zeiteintrag;
@@ -225,6 +247,11 @@ namespace TimeTracker
 	{
 		public decimal Menge { get; set; }
 		public override string ToString() => $"{Menge} Minuten";
+	}
+	public class Datum
+	{
+		public DateTime Tag { get; set; }
+		public override string ToString() => $"am {Tag.ToString("dd.MM.yyyy")}";
 	}
 
 
