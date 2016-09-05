@@ -143,7 +143,7 @@ namespace TimeTracker
 		public List<object> Tokens { get; set; }
 
 		[Icon(Symbol.Add)]
-		public async static Task<Zeiteintrag> Neu(string beschreibung,
+		public async static Task<Zeiteintrag> Neu(DateTime datum, string beschreibung,
 			Tätigkeit Tätigkeit,
 			Projekt Projekt,
 			Kunde Kunde,
@@ -162,8 +162,9 @@ namespace TimeTracker
 				var projekteNachKürzel = projekte.ToLookup(p => p.Kürzel);
 				var kundenNachKürzel = kunden.ToLookup(k => k.Kürzel);
 
-				var tokens = beschreibung.ToUpper().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).SelectMany(t =>
+				var tokens = new[] { new Datum { Tag = datum } }.Concat(beschreibung.ToUpper().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).SelectMany(t =>
 				{
+					var slidingDatum = datum;
 					var menge = t.Substring(0, t.Length - 1);
 					decimal parsed;
 					if (decimal.TryParse(t, out parsed))
@@ -194,11 +195,13 @@ namespace TimeTracker
 					}
 					else if (t.All(c => c == '-'))
 					{
-						return new[] { new Datum { Tag = DateTime.Today.AddDays(-t.Length) } };
+						slidingDatum = slidingDatum.AddDays(-t.Length);
+						return new[] { new Datum { Tag = slidingDatum } };
 					}
 					else if (t.All(c => c == '+'))
 					{
-						return new[] { new Datum { Tag = DateTime.Today.AddDays(t.Length) } };
+						slidingDatum = slidingDatum.AddDays(t.Length);
+						return new[] { new Datum { Tag = slidingDatum } };
 					}
 					else if (tätigkeitenNachKürzel.Contains(t))
 					{
@@ -216,13 +219,12 @@ namespace TimeTracker
 					{
 						return Enumerable.Empty<object>();
 					}
-				}).ToList();
+				})).ToList();
 
 				var zeiteintrag = new Zeiteintrag
 				{
 					Beschreibung = beschreibung.Trim(),
 					Tokens = tokens
-						.Concat(tokens.OfType<Datum>().Any() ? Enumerable.Empty<Datum>() : new[] { new Datum { Tag = DateTime.Today } })
 						.Concat(new object[] { Tätigkeit, Projekt, Kunde })
 						.ToList()
 				};
