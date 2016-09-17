@@ -144,9 +144,6 @@ namespace TimeTracker
 
 		[Icon(Symbol.Add)]
 		public async static Task<Zeiteintrag> Neu(DateTime datum, string beschreibung,
-			Tätigkeit Tätigkeit,
-			Projekt Projekt,
-			Kunde Kunde,
 			ObservableCollection<Tätigkeit> tätigkeiten,
 			ObservableCollection<Projekt> projekte,
 			ObservableCollection<Kunde> kunden)
@@ -162,9 +159,9 @@ namespace TimeTracker
 				var projekteNachKürzel = projekte.ToLookup(p => p.Kürzel);
 				var kundenNachKürzel = kunden.ToLookup(k => k.Kürzel);
 
+				var slidingDatum = datum;
 				var tokens = new[] { new Datum { Tag = datum } }.Concat(beschreibung.ToUpper().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).SelectMany(t =>
 				{
-					var slidingDatum = datum;
 					var menge = t.Substring(0, t.Length - 1);
 					decimal parsed;
 					if (decimal.TryParse(t, out parsed))
@@ -225,8 +222,6 @@ namespace TimeTracker
 				{
 					Beschreibung = beschreibung.Trim(),
 					Tokens = tokens
-						.Concat(new object[] { Tätigkeit, Projekt, Kunde })
-						.ToList()
 				};
 
 				return zeiteintrag;
