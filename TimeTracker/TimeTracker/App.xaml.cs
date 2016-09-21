@@ -22,7 +22,7 @@ namespace TimeTracker
 
 		private void App_Suspending(object sender, Windows.ApplicationModel.SuspendingEventArgs e)
 		{
-			Prototype.Remember(typeof(Stunden), typeof(Minuten), typeof(Datum));
+			Prototype.Remember(typeof(Stunden), typeof(Minuten), typeof(Datum), typeof(Trennzeichen));
 		}
 
 		protected async override void OnLaunched(LaunchActivatedEventArgs e)
@@ -142,8 +142,20 @@ namespace TimeTracker
 		[Editor(@readonly: true)]
 		public List<object> Tokens { get; set; }
 
+		[Icon(Symbol.Delete), RequiresConfirmation]
+		public async static void Alle_Löschen(ObservableCollection<Zeiteintrag> zeiteinträge)
+		{
+			zeiteinträge.Clear();
+		}
+
+		[Icon(Symbol.Remove), RequiresConfirmation]
+		public async void Löschen(ObservableCollection<Zeiteintrag> zeiteinträge)
+		{
+			zeiteinträge.Remove(this);
+		}
+
 		[Icon(Symbol.Add)]
-		public async static Task<Zeiteintrag> Neu(DateTime datum, string beschreibung,
+		public async static Task<List<Zeiteintrag>> Neu(DateTime datum, string beschreibung,
 			ObservableCollection<Tätigkeit> tätigkeiten,
 			ObservableCollection<Projekt> projekte,
 			ObservableCollection<Kunde> kunden)
@@ -160,7 +172,7 @@ namespace TimeTracker
 				var kundenNachKürzel = kunden.ToLookup(k => k.Kürzel);
 
 				var slidingDatum = datum;
-				var tokens = new[] { new Datum { Tag = datum } }.Concat(beschreibung.ToUpper().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).SelectMany(t =>
+				var tokens = new[] { new Datum { Tag = datum } }.Concat(beschreibung.Replace(".", " . ").ToUpper().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).SelectMany(t =>
 				{
 					var menge = t.Substring(0, t.Length - 1);
 					decimal parsed;
@@ -193,12 +205,16 @@ namespace TimeTracker
 					else if (t.All(c => c == '-'))
 					{
 						slidingDatum = slidingDatum.AddDays(-t.Length);
-						return new[] { new Datum { Tag = slidingDatum } };
+						return new object[] { new Trennzeichen(), new Datum { Tag = slidingDatum } };
 					}
 					else if (t.All(c => c == '+'))
 					{
 						slidingDatum = slidingDatum.AddDays(t.Length);
-						return new[] { new Datum { Tag = slidingDatum } };
+						return new object[] { new Trennzeichen(), new Datum { Tag = slidingDatum } };
+					}
+					else if (t == ".")
+					{
+						return new object[] { new Trennzeichen(), new Datum { Tag = slidingDatum } };
 					}
 					else if (tätigkeitenNachKürzel.Contains(t))
 					{
@@ -218,21 +234,68 @@ namespace TimeTracker
 					}
 				})).ToList();
 
-				var zeiteintrag = new Zeiteintrag
+				var gruppierteTokens = tokens.Aggregate(new Stack<Stack<object>>(), (accumulator, current) =>
 				{
-					Beschreibung = beschreibung.Trim(),
-					Tokens = tokens
-				};
+					if (current is Trennzeichen)
+					{
+						accumulator.Push(new Stack<object>());
+					}
+					else
+					{
+						if (accumulator.Any()) accumulator.Peek().Push(current);
+						else accumulator.Push(new Stack<object>(new[] { current }));
+					}
+					return accumulator;
+				});
 
-				return zeiteintrag;
+				return (from gruppe in gruppierteTokens
+						where !(gruppe.Count == 1 && gruppe.Peek() is Datum)
+						let umgedrehteGruppe = gruppe.Reverse()
+						select new Zeiteintrag
+						{
+							Beschreibung = CapitalizeFirstLetter(string.Join(" ", Separate(umgedrehteGruppe, (previous, next) =>
+							{
+								if (previous is Datum && next is Projekt) return new[] { "bezüglich" };
+								else if (previous is Kunde && next is Projekt) return new[] { "bezüglich" };
+								else if (previous is Tätigkeit && next is Projekt) return new[] { "bezüglich" };
+
+								else if (previous is Datum && next is Kunde) return new[] { "mit" };
+								else if (previous is Projekt && next is Kunde) return new[] { "mit" };
+								else if (previous is Tätigkeit && next is Kunde) return new[] { "mit" };
+
+								else if (previous is Projekt && next is Projekt) return new[] { "und" };
+								else if (previous is Kunde && next is Kunde) return new[] { "und" };
+								else if (previous is Tätigkeit && next is Tätigkeit) return new[] { "und" };
+
+								else return new object[0];
+							}))) + ".",
+							Tokens = umgedrehteGruppe.ToList()
+						}).ToList();
 			}
 		}
 
-		[Icon(Symbol.Remove), RequiresConfirmation]
-		public async void Löschen(ObservableCollection<Zeiteintrag> zeiten)
+		private static IEnumerable<T> Separate<T>(IEnumerable<T> sequence, Func<T, T, IEnumerable<T>> separatorFunc)
 		{
-			zeiten.Remove(this);
+			T previous = default(T);
+			foreach (var item in sequence.Select((e, i) => new { element = e, index = i }))
+			{
+				if (item.index != 0)
+				{
+					foreach (var separatorItem in separatorFunc(previous, item.element))
+					{
+						yield return separatorItem;
+					}
+				}
+				previous = item.element;
+				yield return item.element;
+			}
 		}
+
+		private static string CapitalizeFirstLetter(string text)
+		{
+			return string.Concat(Enumerable.Concat(new[] { char.ToUpper(text.First()) }, text.Skip(1)));
+		}
+
 	}
 
 	public class Stunden
@@ -249,6 +312,10 @@ namespace TimeTracker
 	{
 		public DateTime Tag { get; set; }
 		public override string ToString() => $"am {Tag.ToString("dd.MM.yyyy")}";
+	}
+	public class Trennzeichen
+	{
+		public override string ToString() => "Trennzeichen";
 	}
 
 
